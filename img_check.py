@@ -14,76 +14,85 @@ the image data of poor quality images
 import os
 import numpy as np
 import numpy.random as rand
+import scipy as scipy
 import random
 import itertools
 import pandas as pd
 import skimage as si
 import time
+import my_functions as my_func
 
-
-def get_ind_img_stats(dir_path, as_float):
-    #TODO run this live, debug and make sure it works as described
-    """Given a folder of images, calculates the mean and variance of each
-    individual image and returns a pandas data frame """
+#TODO read in paths and number of threads using a gui interface
+img_dir_path = my_func.convert_to_wsl_path(r"C:\Users\TracingPC1\Documents\zbrain_analysis\vglutGFP_individual_zbrain_stacks")
+mask_dir_path = my_func.convert_to_wsl_path(r"C:\Users\TracingPC1\Documents\zbrain_analysis\MECE-Masks")
     
-    img_dir = os.fsencode(dir_path)
-    img_data_list = [[]]
+   
+def read_masks(mask_dir_path):
+    """Given a path to a directory containing all of the mask files, reads in all of the masks
+    (stored as sparse matrices, reshaped if originally 3d) along with their names into a list."""
     
-    for file in os.listdir(img_dir):
-        filename = os.fsdecode(file)
-        file_path = os.path.join(dir_path, filename)
-        
-        if as_float == True:
-            curr_img = si.img_as_float(si.io.imread(file_path))
-            img_mean = np.mean(curr_img)
-            img_var = np.var(curr_img)
-            img_data_list.append([filename, img_mean, img_var])
-            
-        elif as_float == False:
-            curr_img = si.io.imread(file_path)
-            img_mean = np.mean(curr_img)
-            img_var = np.var(curr_img)
-            img_data_list.append([filename, img_mean, img_var])
-            
-        data = pd.DataFrame(img_data_list[:][1:], rows=img_data_list[:][0], 
-                            columns=["Mean", "Variance"])
-        
-        #TODO create an accompanying funciton to plot this function
-        
-    return data
-
-def get_ind_mask_stats(img_dir_path, mask_dir_path, as_float):
-    """Given a folder of images and a folder of anatomical region masks, creates
-    a pandas dataframe where each row is the means of each mask area for a given
-    image, and the columns are the mean values of each image for a given mask
-    region."""
+    mask_list = []
     
-    # Get a list of the image names
-    img_dir = os.fsencode(img_dir_path)
-    img_name_list = []
-    for file in os.lsitdir(img_dir):
-        img_name_list.append(os.fsdecode(file))
-    
-    # Get a list of the mask names
+    # Iterate over all the masks in the directory, skipping and subdirectories
     mask_dir = os.fsencode(mask_dir_path)
-    mask_name_list = []
-    for file in os.listdir(mask_dir):
-        mask_name_list.append(os.fsdecode(file))
-        
-    img_data_list = [[]]
+    for mask_file in os.listdir(mask_dir):
+        filename = os.fsdecode(mask_file)
+        file_path = os.path.join(mask_dir_path, filename)
+        if os.path.isdir(file_path) == False:
+            
+            # Read in each mask as a boolean array 
+            mask = si.io.imread(file_path).astype(bool)
+            dims = mask.shape
+            
+            # Store the mask as a sparse matrix, reshaping first if necessary
+            if len(dims) == 3:
+                mask = scipy.sparse.coo_matrix(mask.reshape(dims[0],-1))
+                
+            elif len(dims) == 2:
+                mask = scipy.sparse.coo_matrix(mask)
+                
+            else: 
+                print("Error: Invalid File Format")
+                return None
+            
+            #TODO trim the file extension off of filename
+            mask_list.append([filename, mask])
+            
+    return mask_list
+
+def get_masked_img_data(img_dir_path, mask_list):
+    """Given a path to a directory containing the images to be checked, and a mask list, 
+    decomposes the images into their masked means and stores them in a pandas dataframe."""
     
+    # Iterate over all the images in the directory, skipping and subdirectories
+    img_dir = os.fsencode(img_dir_path)
     for img_file in os.listdir(img_dir):
-        img_path = os.fsdecode(os.path.join(img_dir, img_file))
-        
-        if as_float = True:
-            curr_img = si.img_as_float(si.io.imread(img_path))
+        filename = os.fsdecode(img_file)
+        file_path = os.path.join(img_dir_path, filename)
+        if os.path.isdir(file_path) == False:
             
-        elif as_float = False:
-            curr_img = si.io.imread(img_path)
+            img = si.img_as_float(si.io.imread(file_path))
+            dims = img.shape
             
-        
-    #TODO Iterate over each mask region for each file and save it as a nested list
+            if len(dims)==3:
+                img = scipy.sparse.coo_matrix(img.reshape(dims[0],-1))
+                
+            elif len(dims)==2:
+                img = scipy.sparse.coo_matrix(img)
+                
+            else:
+                print("Error: Invalid File Format")
+                return None
+            
+            #TODO decide which data structure will be best for combining these into a 
+            # dataframe, both within this function and when recombinin multiple parallel
+            # loops
+            for mask in mask_list:
+                
+# %% Testing
     
-    
-    
-    return None
+start = time.time()
+test = read_masks(mask_dir_path)
+elapsed = time.time()-start
+print("Size of test: " + str(getsizeof(test)))
+print("time: " + str(elapsed))
