@@ -96,6 +96,9 @@ def get_masked_img_data(img_dir_path, mask_list):
             
     df = pd.DataFrame(masked_img_data_list)
     
+    # Organize such that the row names are the image file names
+    df.set_index(df.columns.values[0])
+    
     return df
                 
 # %% Testing reading in masks
