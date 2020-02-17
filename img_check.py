@@ -64,6 +64,8 @@ def get_masked_img_data(img_dir_path, mask_list):
     """Given a path to a directory containing the images to be checked, and a mask list, 
     decomposes the images into their masked means and stores them in a pandas dataframe."""
     
+    masked_img_data_list = []
+    
     # Iterate over all the images in the directory, skipping and subdirectories
     img_dir = os.fsencode(img_dir_path)
     for img_file in os.listdir(img_dir):
@@ -75,24 +77,41 @@ def get_masked_img_data(img_dir_path, mask_list):
             dims = img.shape
             
             if len(dims)==3:
-                img = scipy.sparse.coo_matrix(img.reshape(dims[0],-1))
+                img = img.reshape(dims[0],-1)
                 
             elif len(dims)==2:
-                img = scipy.sparse.coo_matrix(img)
+                continue
                 
             else:
                 print("Error: Invalid File Format")
                 return None
-            
-            #TODO decide which data structure will be best for combining these into a 
-            # dataframe, both within this function and when recombinin multiple parallel
-            # loops
+                       
+            temp_masked_img_data_list = []
+            temp_masked_img_data_list.append(filename)
             for mask in mask_list:
+                masked_img_mean = np.mean(img[mask[1].row,mask[1].col])
+                temp_masked_img_data_list.append(masked_img_mean)
                 
-# %% Testing
+            masked_img_data_list.append(temp_masked_img_data_list)
+            
+    df = pd.DataFrame(masked_img_data_list)
+    
+    return df
+                
+# %% Testing reading in masks
     
 start = time.time()
-test = read_masks(mask_dir_path)
+test_masks = read_masks(mask_dir_path)
 elapsed = time.time()-start
-print("Size of test: " + str(getsizeof(test)))
+print("Size of test_masks: " + str(getsizeof(test)))
 print("time: " + str(elapsed))
+
+# %% Testing masking images
+
+start = time.time()
+test_masked_img_means = get_masked_img_data(img_dir_path, test_masks)
+elapsed = time.time()-start
+print("Size of test_masked_img_means: " + str(getsizeof(test_masked_img_means)))
+print("time: " + str(elapsed))
+
+
