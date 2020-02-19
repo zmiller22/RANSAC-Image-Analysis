@@ -14,9 +14,7 @@ the image data of poor quality images
 # %% import packages, set file paths, define functions
 import os
 import numpy as np
-import numpy.random as rand
 import scipy as scipy
-import random
 import itertools
 import pandas as pd
 import skimage as si
@@ -27,6 +25,7 @@ import my_functions as my_func
 img_dir_path = my_func.convert_to_wsl_path(r"C:\Users\TracingPC1\Documents\zbrain_analysis\vglutGFP_individual_zbrain_stacks")
 mask_dir_path = my_func.convert_to_wsl_path(r"C:\Users\TracingPC1\Documents\zbrain_analysis\MECE-Masks")
 n_threads = 8
+outlier_threshold = 3
 
 #%% 
    
@@ -59,8 +58,8 @@ def read_masks(mask_dir_path):
                 return None
             
             #TODO trim the file extension off of filename
-            # os.path.splitext(filename)[0] test this
-            mask_list.append([filename, mask])
+            name = os.path.splitext(filename)[0]
+            mask_list.append([name, mask])
             
     return mask_list
 
@@ -103,69 +102,84 @@ def get_masked_img_data(img_dir_path, mask_list):
             masked_img_data_dict.update({name:temp_masked_img_data_list})
     
     # Create a dataframe and organize such that the row names are the image file names        
-    df = pd.DataFrame(masked_img_data_list)
-    df.set_index(df.columns.values[0])
+    df = pd.DataFrame.from_dict(masked_img_data_dict, orient="index")
     
     return df
 
-def find_bad_imgs(df):
+def get_loo_vars(df):
     """Given a dataframe of the mask region means for n images, calculates the region
     variance for all possible combinations of n-1 images __returns outliers?__"""
-    
     # Get all possible combinations of n-1 row indices
-    val_arr = df.values[:,1:None]
+    val_arr = df.values
     dims = val_arr.shape
     idx_arr = np.array(range(dims[0]))
     idx_arr_combs = np.asarray(list(itertools.combinations(idx_arr, dims[0]-1)))
     
     img_region_var_dict = {}
     for idx_vec in idx_arr_combs:
+        # Get the missing image index and its name
         missing_idx = np.setdiff1d(idx_arr, idx_vec)
-        img_name = df.at[missing_idx[0],"Image"]
-        print(img_name)
-    
-    
-    
-    
-    
-    
-    return None
+        img_name = df.index.values[missing_idx][0]
+        # Calculate the varaince of all regions without this image
+        val_arr_subset = np.delete(val_arr, missing_idx, axis=0)
+        var_vals_list = list(np.var(val_arr_subset, axis=0))
+        
+        # Add the missing image name and the cooresponding region variances to the dict
+        img_region_var_dict.update({img_name:var_vals_list})
+        
+    df_out = pd.DataFrame.from_dict(img_region_var_dict, orient="index", columns=df.columns)
+     
+    return df_out
     
 
 # %% Get DataFrame of mask region means
 start = time.time()
 
+print("Loading masks...")
+#TODO add the column names in the funcion using columns= command upon creation
 mask_list = read_masks(mask_dir_path)
 df_header_list = [mask[0] for mask in mask_list]
-df_header_list.insert(0,"Image")
-
+print("Masks loaded.")
+print("Calculating mask region means...")
 mask_region_means_df = get_masked_img_data(img_dir_path, mask_list)
+mask_region_means_df.columns = df_header_list
+print("Region means calculated")
+
+# %%
+loo_ransac_region_var_df = get_loo_vars(mask_region_means_df)
+loo_row_names_list = list(loo_ransac_region_var_df.index)
+
+z_df = pd.DataFrame(scipy.stats.zscore(loo_ransac_region_var_df), 
+                    index=loo_row_names_list, columns = df_header_list)
+bad_regions_list = [(z_df.index[i], z_df.columns[j]) for i, j in 
+                    np.argwhere(z_df.values<-1*outlier_threshold)]
+
+
 
 elapsed = time.time()-start
 print("time: " + str(elapsed))
-#mask_region_means_df.columns=df_header_list
                 
-# %% Testing reading in masks
-    
-start = time.time()
-test_masks = read_masks(mask_dir_path)
-elapsed = time.time()-start
-print("Size of test_masks: " + str(getsizeof(test)))
-print("time: " + str(elapsed))
-
-# %% Testing masking images
-
-start = time.time()
-test_masked_img_means = get_masked_img_data(img_dir_path, test_masks)
-elapsed = time.time()-start
-print("Size of test_masked_img_means: " + str(getsizeof(test_masked_img_means)))
-print("time: " + str(elapsed))
-
-# %%  Testing image variance calculations
-
-start = time.time()
-find_bad_imgs(mask_region_means_df)
-elapsed = time.time()-start
+## %% Testing reading in masks
+#    
+#start = time.time()
+#test_masks = read_masks(mask_dir_path)
+#elapsed = time.time()-start
+#print("Size of test_masks: " + str(getsizeof(test)))
+#print("time: " + str(elapsed))
+#
+## %% Testing masking images
+#
+#start = time.time()
+#test_masked_img_means = get_masked_img_data(img_dir_path, test_masks)
+#elapsed = time.time()-start
 #print("Size of test_masked_img_means: " + str(getsizeof(test_masked_img_means)))
-print("time: " + str(elapsed))
-
+#print("time: " + str(elapsed))
+#
+## %%  Testing image variance calculations
+#
+#start = time.time()
+#test = get_loo_vars(mask_region_means_df)
+#elapsed = time.time()-start
+##print("Size of test_masked_img_means: " + str(getsizeof(test_masked_img_means)))
+#print("time: " + str(elapsed))
+#
