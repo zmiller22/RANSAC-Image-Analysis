@@ -95,6 +95,7 @@ def get_masked_img_data(img_dir_path, mask_list):
             # the main list
             temp_masked_img_data_list = []
             name = os.path.splitext(filename)[0]
+            #TODO try speeding this up by using JAX vmap
             for mask in mask_list:
                 masked_img_mean = np.mean(img[mask[1].row,mask[1].col])
                 temp_masked_img_data_list.append(masked_img_mean)
