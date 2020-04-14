@@ -109,7 +109,8 @@ def get_masked_img_data(img_dir_path, mask_list):
 
 def get_loo_vars(df):
     """Given a dataframe of the mask region means for n images, calculates the region
-    variance for all possible combinations of n-1 images __returns outliers?__"""
+    variance for all possible combinations of n-1 images __returns outliers?, 
+    loo stands for leave one out__"""
     # Get all possible combinations of n-1 row indices
     val_arr = df.values
     dims = val_arr.shape
