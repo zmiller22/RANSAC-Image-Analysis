@@ -9,64 +9,74 @@ This will be a self-contained tool that takes a folder of images and a folder
 of anatomical region masks and uses both individual and total image statistics (RANSAC)
 to find poor quality images, visualize these differences, and ultimately clean 
 the image data of poor quality images
+
+Need to convert to a module and then comment for Sumit. Probably just get it to
+a point where he can customize it for use with his database and calculate all the
+stats that he needs from it
 """
 
 # %% import packages, set file paths, define functions
 import os
 import numpy as np
 import scipy as scipy
+from scipy import sparse
 import itertools
 import pandas as pd
 import skimage as si
 import time
 import my_functions as my_func
 
-#TODO read in paths and number of threads using a gui interface
-img_dir_path = my_func.convert_to_wsl_path(r"C:\Users\TracingPC1\Documents\zbrain_analysis\vglutGFP_individual_zbrain_stacks")
-mask_dir_path = my_func.convert_to_wsl_path(r"C:\Users\TracingPC1\Documents\zbrain_analysis\MECE-Masks")
-n_threads = 8
-outlier_threshold = 3
-
 #%% 
-   
-def read_masks(mask_dir_path):
-    """Given a path to a directory containing all of the mask files, reads in all of the masks
-    (stored as sparse matrices, reshaped if originally 3d) along with their names into a list."""
+
+#TODO put the mask and image reading into one function with different type 
+# options for the data input type... Note that this will require changing the
+def getSparseMaskDictFromDir(mask_dir_path):
+    """Loads all the masks in the given directory into sparse arrays
+    and returns them as a dict along with their dimensions
     
-    mask_list = []
+    Args: 
+        mask_dir_path (str): path to directory containing masks
+        
+    Returns:
+        mask_dict (dict): dict containing mask name : sparse mask pairs
+        original_dims (array): array of the mask dimensions formatted [z,y,x]
+    """
     
-    # Iterate over all the masks in the directory, skipping and subdirectories
+    mask_dict = {}
+    original_dims = 0
+    
+    # Iterate over all the masks in the directory, skipping any subdirectories
     mask_dir = os.fsencode(mask_dir_path)
     for mask_file in os.listdir(mask_dir):
         filename = os.fsdecode(mask_file)
         file_path = os.path.join(mask_dir_path, filename)
+        mask_name = os.path.splitext(os.path.basename(file_path))[0]
         if os.path.isdir(file_path) == False:
             
             # Read in each mask as a boolean array 
             mask = si.io.imread(file_path).astype(bool)
-            dims = mask.shape
+            if original_dims==0:
+                original_dims = mask.shape
             
-            # Store the mask as a sparse matrix, reshaping first if necessary
-            if len(dims) == 3:
-                mask = scipy.sparse.coo_matrix(mask.reshape(dims[0],-1))
-                
-            elif len(dims) == 2:
-                mask = scipy.sparse.coo_matrix(mask)
-                
-            else: 
-                print("Error: Invalid File Format")
-                return None
-            
-            #TODO trim the file extension off of filename
-            name = os.path.splitext(filename)[0]
-            mask_list.append([name, mask])
-            
-    return mask_list
+            # Reshape the mask into a 2d array and save as a sparse array
+            mask = sparse.coo_matrix(mask.reshape(mask.shape[0],-1))
+            mask_dict.update({mask_name : mask})
+    
+    return mask_dict, original_dims
 
-def get_masked_img_data(img_dir_path, mask_list):
-    """Given a path to a directory containing the images to be checked, and a mask list, 
-    decomposes the images into their masked means and stores them in a pandas dataframe.
-    Returns the dataframe"""
+
+def getMaskedImgData(img_dir_path, mask_dict):
+    """Decompose images in a directory into their mean values for each mask 
+    region and return as a DataFrame
+    
+    Args:
+        img_dir_path (str): path to directory containing images
+        mask_dict (dict): dictionary of sparse masks formated {mask_name:mask}
+        
+    Returns:
+        df_out (DataFrame): DataFrame with rows as images and columns as mask
+                            mask means
+        """
     
     masked_img_data_dict = {}
     
@@ -95,22 +105,35 @@ def get_masked_img_data(img_dir_path, mask_list):
             # the main list
             temp_masked_img_data_list = []
             name = os.path.splitext(filename)[0]
-            #TODO try speeding this up by using JAX vmap
-            for mask in mask_list:
-                masked_img_mean = np.mean(img[mask[1].row,mask[1].col])
+            
+            #TODO speed this up using paralellization and map
+            for key in mask_dict.keys():
+                mask = mask_dict[key]
+                masked_img_mean = np.mean(img[mask.row,mask.col])
                 temp_masked_img_data_list.append(masked_img_mean)
                 
             masked_img_data_dict.update({name:temp_masked_img_data_list})
     
     # Create a dataframe and organize such that the row names are the image file names        
-    df = pd.DataFrame.from_dict(masked_img_data_dict, orient="index")
+    masked_img_df = pd.DataFrame.from_dict(masked_img_data_dict, orient="index")
     
-    return df
+    return masked_img_df
 
-def get_loo_vars(df):
-    """Given a dataframe of the mask region means for n images, calculates the region
-    variance for all possible combinations of n-1 images __returns outliers?, 
-    loo stands for leave one out__"""
+
+def getLOOVars(df):
+    """Calculates the leave-one-out varaince of each column of a data frame. 
+    That is, the column variance of all n-1 combinations of the rows. Returns
+    a DataFrame where the rows are the colun wise variances for that row row
+    being left out of the calculation
+    
+    Args: 
+        df (DataFrame): DataFrame for LOO variance calculation
+        
+    Returns:
+        df_out (DataFrame): DataFrame with each row's LOO calculation
+        """
+    #TODO fix naming conventions
+        
     # Get all possible combinations of n-1 row indices
     val_arr = df.values
     dims = val_arr.shape
@@ -122,6 +145,7 @@ def get_loo_vars(df):
         # Get the missing image index and its name
         missing_idx = np.setdiff1d(idx_arr, idx_vec)
         img_name = df.index.values[missing_idx][0]
+        
         # Calculate the varaince of all regions without this image
         val_arr_subset = np.delete(val_arr, missing_idx, axis=0)
         var_vals_list = list(np.var(val_arr_subset, axis=0))
@@ -134,54 +158,35 @@ def get_loo_vars(df):
     return df_out
     
 
-# %% Get DataFrame of mask region means
-start = time.time()
+#%% Set constants
+##TODO test all this code with dummy data
+    
+#TODO fix naming conventions
+img_dir_path = my_func.convert_to_wsl_path(r"C:\Users\TracingPC1\Documents\zbrain_analysis\vglutGFP_individual_zbrain_stacks")
+mask_dir_path = my_func.convert_to_wsl_path(r"C:\Users\TracingPC1\Documents\zbrain_analysis\MECE-Masks")
+OUTLIER_THRESHOLD = 3    
 
+#%% Load masks and calculate mask means for each image
 print("Loading masks...")
-#TODO add the column names in the funcion using columns= command upon creation
-mask_list = read_masks(mask_dir_path)
-df_header_list = [mask[0] for mask in mask_list]
-print("Masks loaded.")
-print("Calculating mask region means...")
-mask_region_means_df = get_masked_img_data(img_dir_path, mask_list)
-mask_region_means_df.columns = df_header_list
-print("Region means calculated")
 
-# %%
-loo_ransac_region_var_df = get_loo_vars(mask_region_means_df)
+#TODO add the column names in the function
+mask_dict = getSparseMaskDictFromDir(mask_dir_path)
+df_header_list = [key for key in mask_dict.keys()]
+
+print("Done\n")
+print("Calculating mask region means...")
+
+mask_region_means_df = getMaskedImgData(img_dir_path, mask_dict)
+mask_region_means_df.columns = df_header_list
+
+print("Done\n")
+
+# %% Calculate the LOO variances
+loo_ransac_region_var_df = getLOOVars(mask_region_means_df)
 loo_row_names_list = list(loo_ransac_region_var_df.index)
 
-z_df = pd.DataFrame(scipy.stats.zscore(loo_ransac_region_var_df), 
+# Calculate the z-scores of the region variances
+z_df = pd.DataFrame(scipy.stats.zscore(loo_ransac_region_var_df, axis=1), 
                     index=loo_row_names_list, columns = df_header_list)
 bad_regions_list = [(z_df.index[i], z_df.columns[j]) for i, j in 
-                    np.argwhere(z_df.values<-1*outlier_threshold)]
-
-
-
-elapsed = time.time()-start
-print("time: " + str(elapsed))
-                
-## %% Testing reading in masks
-#    
-#start = time.time()
-#test_masks = read_masks(mask_dir_path)
-#elapsed = time.time()-start
-#print("Size of test_masks: " + str(getsizeof(test)))
-#print("time: " + str(elapsed))
-#
-## %% Testing masking images
-#
-#start = time.time()
-#test_masked_img_means = get_masked_img_data(img_dir_path, test_masks)
-#elapsed = time.time()-start
-#print("Size of test_masked_img_means: " + str(getsizeof(test_masked_img_means)))
-#print("time: " + str(elapsed))
-#
-## %%  Testing image variance calculations
-#
-#start = time.time()
-#test = get_loo_vars(mask_region_means_df)
-#elapsed = time.time()-start
-##print("Size of test_masked_img_means: " + str(getsizeof(test_masked_img_means)))
-#print("time: " + str(elapsed))
-#
+                    np.argwhere(z_df.values<-1*OUTLIER_THRESHOLD)]

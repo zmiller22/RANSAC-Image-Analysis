@@ -94,3 +94,29 @@ def get_ind_mask_stats(img_dir_path, mask_dir_path, as_float):
     
     
     return None
+
+
+## %% Testing reading in masks
+#    
+#start = time.time()
+#test_masks = read_masks(mask_dir_path)
+#elapsed = time.time()-start
+#print("Size of test_masks: " + str(getsizeof(test)))
+#print("time: " + str(elapsed))
+#
+## %% Testing masking images
+#
+#start = time.time()
+#test_masked_img_means = get_masked_img_data(img_dir_path, test_masks)
+#elapsed = time.time()-start
+#print("Size of test_masked_img_means: " + str(getsizeof(test_masked_img_means)))
+#print("time: " + str(elapsed))
+#
+## %%  Testing image variance calculations
+#
+#start = time.time()
+#test = get_loo_vars(mask_region_means_df)
+#elapsed = time.time()-start
+##print("Size of test_masked_img_means: " + str(getsizeof(test_masked_img_means)))
+#print("time: " + str(elapsed))
+#
